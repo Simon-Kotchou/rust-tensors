@@ -49,7 +49,7 @@ fn test_layernorm_forward() {
 
         // Compare the output with the expected output using approximate equality
         for (x, y) in out.iter().zip(expected_output.iter()) {
-            assert_abs_diff_eq!(x, y, epsilon = 1e-4);
+            assert_abs_diff_eq!(x, y, epsilon = 1e-5);
         }
     }
 }
@@ -57,15 +57,15 @@ fn test_layernorm_forward() {
 #[test]
 fn test_layernorm_forward_mse() {
     // Read the JSON file
-    let mut file = File::open("tests/layernorm_test_cases.json").unwrap();
-    let mut json_str = String::new();
+    let mut file: File = File::open("tests/layernorm_test_cases.json").unwrap();
+    let mut json_str: String = String::new();
     file.read_to_string(&mut json_str).unwrap();
 
     // Deserialize the JSON string into a vector of TestCase structs
     let test_cases: Vec<TestCase> = serde_json::from_str(&json_str).unwrap();
 
-    let mut total_mse = 0.0;
-    let mut num_elements = 0;
+    let mut total_mse: f32 = 0.0;
+    let mut num_elements: usize = 0;
 
     // Iterate over the test cases
     for test_case in test_cases {
@@ -90,7 +90,7 @@ fn test_layernorm_forward_mse() {
         );
 
         // Compute the MSE for this test case
-        let mut mse = 0.0;
+        let mut mse: f32 = 0.0;
         for (x, y) in out.iter().zip(expected_output.iter()) {
             let diff = x - y;
             mse += diff * diff;
@@ -102,7 +102,7 @@ fn test_layernorm_forward_mse() {
     }
 
     // Compute the average MSE across all test cases
-    let avg_mse = total_mse / num_elements as f32;
+    let avg_mse: f32 = total_mse / num_elements as f32;
     println!("Average MSE: {}", avg_mse);
 
     // Assert that the average MSE is within an acceptable threshold
