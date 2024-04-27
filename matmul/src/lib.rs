@@ -1,5 +1,29 @@
 use std::arch::x86_64::*;
 
+pub fn matmul(
+    a: &[f32],
+    b: &[f32],
+    out: &mut [f32],
+    a_shape: &[usize],
+    b_shape: &[usize],
+    out_shape: &[usize],
+) {
+    assert_eq!(a_shape.len(), 2);
+    assert_eq!(b_shape.len(), 2);
+    assert_eq!(out_shape.len(), 2);
+    assert_eq!(a_shape[1], b_shape[0]);
+    assert_eq!(out_shape[0], a_shape[0]);
+    assert_eq!(out_shape[1], b_shape[1]);
+
+    let m = a_shape[0];
+    let k = a_shape[1];
+    let n = b_shape[1];
+
+    unsafe {
+        matmul_avx2(a, b, out, m, k, n);
+    }
+}
+
 #[target_feature(enable = "avx2")]
 #[target_feature(enable = "fma")]
 unsafe fn matmul_avx2(
