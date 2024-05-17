@@ -24,6 +24,7 @@ pub fn layernorm_forward(
         let mut m: __m256 = unsafe { _mm256_setzero_ps() };
         let mut v: __m256 = unsafe { _mm256_setzero_ps() };
 
+        // Calculate mean
         let mut i = 0;
         while i + 24 <= c {
             let xi0: __m256 = unsafe { _mm256_load_ps(&x[i]) };
@@ -47,6 +48,7 @@ pub fn layernorm_forward(
         mean_val /= c as f32;
         mean[bt] = mean_val;
 
+        // Calculate variance
         let mean_val_simd = unsafe { _mm256_set1_ps(mean_val) };
         i = 0;
         while i + 24 <= c {
@@ -78,6 +80,7 @@ pub fn layernorm_forward(
         let rstd_val = (var_val + eps).sqrt().recip();
         rstd[bt] = rstd_val;
 
+        // Normalize and apply weight and bias
         let s: __m256 = unsafe { _mm256_set1_ps(rstd_val) };
         let out_bt: &mut [f32] = &mut out.as_mut_slice()[offset..offset + c];
 
@@ -143,8 +146,8 @@ pub fn layernorm_forward(
 #[inline]
 fn hsum_ps_avx(v: __m256) -> f32 {
     unsafe {
-        let mut sum: __m256 = _mm256_hadd_ps(v, v);
-        sum = _mm256_hadd_ps(sum, sum);
+        let sum: __m256 = _mm256_hadd_ps(v, v);
+        let sum: __m256 = _mm256_hadd_ps(sum, sum);
         _mm_cvtss_f32(_mm_add_ss(
             _mm256_castps256_ps128(sum),
             _mm256_extractf128_ps(sum, 1),
