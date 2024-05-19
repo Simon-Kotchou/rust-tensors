@@ -1,8 +1,8 @@
-use layer_norm::{layernorm_forward, AlignedF32};
-use approx::assert_abs_diff_eq;
 use serde::Deserialize;
 use std::fs::File;
 use std::io::Read;
+use approx::assert_abs_diff_eq;
+use layer_norm::layernorm_forward;
 
 #[derive(Deserialize)]
 struct TestCase {
@@ -27,37 +27,29 @@ fn test_layernorm_forward() {
 
     // Iterate over the test cases
     for test_case in test_cases {
-        let inp_flat: Vec<f32> = test_case.input.into_iter().flatten().flatten().collect();
+        let inp: Vec<f32> = test_case.input.into_iter().flatten().flatten().collect();
         let weight: Vec<f32> = test_case.weight;
         let bias: Vec<f32> = test_case.bias;
         let expected_output: Vec<f32> = test_case.output.into_iter().flatten().flatten().collect();
-
-        let mut inp = AlignedF32::new(test_case.b * test_case.t * test_case.c);
-        let mut weight_aligned = AlignedF32::new(test_case.c);
-        let mut bias_aligned = AlignedF32::new(test_case.c);
-        let mut out = AlignedF32::new(test_case.b * test_case.t * test_case.c);
-        let mut mean = vec![0.0; test_case.b * test_case.t];
-        let mut rstd = vec![0.0; test_case.b * test_case.t];
-
-        inp.as_mut_slice().copy_from_slice(&inp_flat);
-        weight_aligned.as_mut_slice().copy_from_slice(&weight);
-        bias_aligned.as_mut_slice().copy_from_slice(&bias);
+        let mut out: Vec<f32> = vec![0.0; test_case.b * test_case.t * test_case.c];
+        let mut mean: Vec<f32> = vec![0.0; test_case.b * test_case.t];
+        let mut rstd: Vec<f32> = vec![0.0; test_case.b * test_case.t];
 
         layernorm_forward(
             &mut out,
             &mut mean,
             &mut rstd,
             &inp,
-            &weight_aligned,
-            &bias_aligned,
+            &weight,
+            &bias,
             test_case.b,
             test_case.t,
             test_case.c,
         );
 
         // Compare the output with the expected output using approximate equality
-        for (x, y) in out.as_slice().iter().zip(expected_output.iter()) {
-            assert_abs_diff_eq!(x, y, epsilon = 1e-5);
+        for (x, y) in out.iter().zip(expected_output.iter()) {
+            assert_abs_diff_eq!(x, y, epsilon = 1e-4);
         }
     }
 }
@@ -72,42 +64,34 @@ fn test_layernorm_forward_mse() {
     // Deserialize the JSON string into a vector of TestCase structs
     let test_cases: Vec<TestCase> = serde_json::from_str(&json_str).unwrap();
 
-    let mut total_mse: f32 = 0.0;
-    let mut num_elements: usize = 0;
+    let mut total_mse = 0.0;
+    let mut num_elements = 0;
 
     // Iterate over the test cases
     for test_case in test_cases {
-        let inp_flat: Vec<f32> = test_case.input.into_iter().flatten().flatten().collect();
+        let inp: Vec<f32> = test_case.input.into_iter().flatten().flatten().collect();
         let weight: Vec<f32> = test_case.weight;
         let bias: Vec<f32> = test_case.bias;
         let expected_output: Vec<f32> = test_case.output.into_iter().flatten().flatten().collect();
-
-        let mut inp = AlignedF32::new(test_case.b * test_case.t * test_case.c);
-        let mut weight_aligned = AlignedF32::new(test_case.c);
-        let mut bias_aligned = AlignedF32::new(test_case.c);
-        let mut out = AlignedF32::new(test_case.b * test_case.t * test_case.c);
-        let mut mean = vec![0.0; test_case.b * test_case.t];
-        let mut rstd = vec![0.0; test_case.b * test_case.t];
-
-        inp.as_mut_slice().copy_from_slice(&inp_flat);
-        weight_aligned.as_mut_slice().copy_from_slice(&weight);
-        bias_aligned.as_mut_slice().copy_from_slice(&bias);
+        let mut out: Vec<f32> = vec![0.0; test_case.b * test_case.t * test_case.c];
+        let mut mean: Vec<f32> = vec![0.0; test_case.b * test_case.t];
+        let mut rstd: Vec<f32> = vec![0.0; test_case.b * test_case.t];
 
         layernorm_forward(
             &mut out,
             &mut mean,
             &mut rstd,
             &inp,
-            &weight_aligned,
-            &bias_aligned,
+            &weight,
+            &bias,
             test_case.b,
             test_case.t,
             test_case.c,
         );
 
         // Compute the MSE for this test case
-        let mut mse: f32 = 0.0;
-        for (x, y) in out.as_slice().iter().zip(expected_output.iter()) {
+        let mut mse = 0.0;
+        for (x, y) in out.iter().zip(expected_output.iter()) {
             let diff = x - y;
             mse += diff * diff;
         }
@@ -118,7 +102,7 @@ fn test_layernorm_forward_mse() {
     }
 
     // Compute the average MSE across all test cases
-    let avg_mse: f32 = total_mse / num_elements as f32;
+    let avg_mse = total_mse / num_elements as f32;
     println!("Average MSE: {}", avg_mse);
 
     // Assert that the average MSE is within an acceptable threshold

@@ -1,24 +1,15 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use rand::Rng;
-use layer_norm::{layernorm_forward, AlignedF32};
+use layer_norm::layernorm_forward;
 
-fn generate_random_data(b: usize, t: usize, c: usize) -> (AlignedF32, AlignedF32, AlignedF32, AlignedF32, Vec<f32>, Vec<f32>) {
+fn generate_random_data(b: usize, t: usize, c: usize) -> (Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>) {
     let mut rng = rand::thread_rng();
-    let mut inp = AlignedF32::new(b * t * c);
-    let mut weight = AlignedF32::new(c);
-    let mut bias = AlignedF32::new(c);
-    let out = AlignedF32::new(b * t * c);
-    let mean = vec![0.0; b * t];
-    let rstd = vec![0.0; b * t];
-
-    for i in 0..b * t * c {
-        inp.as_mut_slice()[i] = rng.gen();
-    }
-    for i in 0..c {
-        weight.as_mut_slice()[i] = rng.gen();
-        bias.as_mut_slice()[i] = rng.gen();
-    }
-
+    let inp: Vec<f32> = (0..b * t * c).map(|_| rng.gen()).collect();
+    let weight: Vec<f32> = (0..c).map(|_| rng.gen()).collect();
+    let bias: Vec<f32> = (0..c).map(|_| rng.gen()).collect();
+    let out: Vec<f32> = vec![0.0; b * t * c];
+    let mean: Vec<f32> = vec![0.0; b * t];
+    let rstd: Vec<f32> = vec![0.0; b * t];
     (inp, weight, bias, out, mean, rstd)
 }
 
