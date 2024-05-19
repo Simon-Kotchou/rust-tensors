@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 #[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::*;
 
@@ -8,14 +9,32 @@ pub fn layernorm_forward(
     inp: &[f32],
     weight: &[f32],
     bias: &[f32],
+=======
+use std::arch::x86_64::*;
+
+use crate::AlignedF32;
+
+pub fn layernorm_forward(
+    out: &mut AlignedF32,
+    mean: &mut [f32],
+    rstd: &mut [f32],
+    inp: &AlignedF32,
+    weight: &AlignedF32,
+    bias: &AlignedF32,
+>>>>>>> fc5594bd349c513bc5ac9937d425cc764867182c
     b: usize,
     t: usize,
     c: usize,
 ) {
+<<<<<<< HEAD
+=======
+    println!("Starting layernorm_forward");
+>>>>>>> fc5594bd349c513bc5ac9937d425cc764867182c
     let eps: f32 = 1e-5;
     let c_simd = c - (c % 8);
 
     for bt in 0..(b * t) {
+<<<<<<< HEAD
         let offset: usize = bt * c;
         let x: &[f32] = &inp[offset..offset + c];
         let mut m: __m256 = unsafe { _mm256_setzero_ps() };
@@ -26,13 +45,31 @@ pub fn layernorm_forward(
             let xi0: __m256 = unsafe { _mm256_loadu_ps(&x[i]) };
             let xi1: __m256 = unsafe { _mm256_loadu_ps(&x[i + 8]) };
             let xi2: __m256 = unsafe { _mm256_loadu_ps(&x[i + 16]) };
+=======
+        println!("Processing batch {}", bt);
+        let offset: usize = bt * c;
+        let x: &[f32] = &inp.as_slice()[offset..offset + c];
+        let mut m: __m256 = unsafe { _mm256_setzero_ps() };
+        let mut v: __m256 = unsafe { _mm256_setzero_ps() };
+
+        // Calculate mean
+        let mut i = 0;
+        while i + 24 <= c {
+            let xi0: __m256 = unsafe { _mm256_load_ps(&x[i]) };
+            let xi1: __m256 = unsafe { _mm256_load_ps(&x[i + 8]) };
+            let xi2: __m256 = unsafe { _mm256_load_ps(&x[i + 16]) };
+>>>>>>> fc5594bd349c513bc5ac9937d425cc764867182c
             m = unsafe { _mm256_add_ps(m, xi0) };
             m = unsafe { _mm256_add_ps(m, xi1) };
             m = unsafe { _mm256_add_ps(m, xi2) };
             i += 24;
         }
         while i < c_simd {
+<<<<<<< HEAD
             let xi: __m256 = unsafe { _mm256_loadu_ps(&x[i]) };
+=======
+            let xi: __m256 = unsafe { _mm256_load_ps(&x[i]) };
+>>>>>>> fc5594bd349c513bc5ac9937d425cc764867182c
             m = unsafe { _mm256_add_ps(m, xi) };
             i += 8;
         }
@@ -44,12 +81,22 @@ pub fn layernorm_forward(
         mean_val /= c as f32;
         mean[bt] = mean_val;
 
+<<<<<<< HEAD
         let mean_val_simd = unsafe { _mm256_set1_ps(mean_val) };
         i = 0;
         while i + 24 <= c {
             let xi0: __m256 = unsafe { _mm256_loadu_ps(&x[i]) };
             let xi1: __m256 = unsafe { _mm256_loadu_ps(&x[i + 8]) };
             let xi2: __m256 = unsafe { _mm256_loadu_ps(&x[i + 16]) };
+=======
+        // Calculate variance
+        let mean_val_simd = unsafe { _mm256_set1_ps(mean_val) };
+        i = 0;
+        while i + 24 <= c {
+            let xi0: __m256 = unsafe { _mm256_load_ps(&x[i]) };
+            let xi1: __m256 = unsafe { _mm256_load_ps(&x[i + 8]) };
+            let xi2: __m256 = unsafe { _mm256_load_ps(&x[i + 16]) };
+>>>>>>> fc5594bd349c513bc5ac9937d425cc764867182c
             let xi0_m: __m256 = unsafe { _mm256_sub_ps(xi0, mean_val_simd) };
             let xi1_m: __m256 = unsafe { _mm256_sub_ps(xi1, mean_val_simd) };
             let xi2_m: __m256 = unsafe { _mm256_sub_ps(xi2, mean_val_simd) };
@@ -59,7 +106,11 @@ pub fn layernorm_forward(
             i += 24;
         }
         while i < c_simd {
+<<<<<<< HEAD
             let xi: __m256 = unsafe { _mm256_loadu_ps(&x[i]) };
+=======
+            let xi: __m256 = unsafe { _mm256_load_ps(&x[i]) };
+>>>>>>> fc5594bd349c513bc5ac9937d425cc764867182c
             let xi_m: __m256 = unsafe { _mm256_sub_ps(xi, mean_val_simd) };
             v = unsafe { _mm256_fmadd_ps(xi_m, xi_m, v) };
             i += 8;
@@ -75,6 +126,7 @@ pub fn layernorm_forward(
         let rstd_val = (var_val + eps).sqrt().recip();
         rstd[bt] = rstd_val;
 
+<<<<<<< HEAD
         let s: __m256 = unsafe { _mm256_set1_ps(rstd_val) };
         let out_bt: &mut [f32] = &mut out[offset..offset + c];
 
@@ -89,6 +141,23 @@ pub fn layernorm_forward(
             let bi0: __m256 = unsafe { _mm256_loadu_ps(&bias[i]) };
             let bi1: __m256 = unsafe { _mm256_loadu_ps(&bias[i + 8]) };
             let bi2: __m256 = unsafe { _mm256_loadu_ps(&bias[i + 16]) };
+=======
+        // Normalize and apply weight and bias
+        let s: __m256 = unsafe { _mm256_set1_ps(rstd_val) };
+        let out_bt: &mut [f32] = &mut out.as_mut_slice()[offset..offset + c];
+
+        i = 0;
+        while i + 24 <= c {
+            let xi0: __m256 = unsafe { _mm256_load_ps(&x[i]) };
+            let xi1: __m256 = unsafe { _mm256_load_ps(&x[i + 8]) };
+            let xi2: __m256 = unsafe { _mm256_load_ps(&x[i + 16]) };
+            let wi0: __m256 = unsafe { _mm256_load_ps(&weight.as_slice()[i]) };
+            let wi1: __m256 = unsafe { _mm256_load_ps(&weight.as_slice()[i + 8]) };
+            let wi2: __m256 = unsafe { _mm256_load_ps(&weight.as_slice()[i + 16]) };
+            let bi0: __m256 = unsafe { _mm256_load_ps(&bias.as_slice()[i]) };
+            let bi1: __m256 = unsafe { _mm256_load_ps(&bias.as_slice()[i + 8]) };
+            let bi2: __m256 = unsafe { _mm256_load_ps(&bias.as_slice()[i + 16]) };
+>>>>>>> fc5594bd349c513bc5ac9937d425cc764867182c
             let o0: __m256 = unsafe {
                 _mm256_fmadd_ps(
                     _mm256_mul_ps(s, _mm256_sub_ps(xi0, mean_val_simd)),
@@ -110,6 +179,7 @@ pub fn layernorm_forward(
                     bi2,
                 )
             };
+<<<<<<< HEAD
             unsafe { _mm256_storeu_ps(&mut out_bt[i], o0) };
             unsafe { _mm256_storeu_ps(&mut out_bt[i + 8], o1) };
             unsafe { _mm256_storeu_ps(&mut out_bt[i + 16], o2) };
@@ -119,6 +189,17 @@ pub fn layernorm_forward(
             let xi: __m256 = unsafe { _mm256_loadu_ps(&x[i]) };
             let wi: __m256 = unsafe { _mm256_loadu_ps(&weight[i]) };
             let bi: __m256 = unsafe { _mm256_loadu_ps(&bias[i]) };
+=======
+            unsafe { _mm256_store_ps(&mut out_bt[i], o0) };
+            unsafe { _mm256_store_ps(&mut out_bt[i + 8], o1) };
+            unsafe { _mm256_store_ps(&mut out_bt[i + 16], o2) };
+            i += 24;
+        }
+        while i < c_simd {
+            let xi: __m256 = unsafe { _mm256_load_ps(&x[i]) };
+            let wi: __m256 = unsafe { _mm256_load_ps(&weight.as_slice()[i]) };
+            let bi: __m256 = unsafe { _mm256_load_ps(&bias.as_slice()[i]) };
+>>>>>>> fc5594bd349c513bc5ac9937d425cc764867182c
             let o: __m256 = unsafe {
                 _mm256_fmadd_ps(
                     _mm256_mul_ps(s, _mm256_sub_ps(xi, mean_val_simd)),
@@ -126,6 +207,7 @@ pub fn layernorm_forward(
                     bi,
                 )
             };
+<<<<<<< HEAD
             unsafe { _mm256_storeu_ps(&mut out_bt[i], o) };
             i += 8;
         }
@@ -252,22 +334,37 @@ pub fn layernorm_backward(
             };
             unsafe { _mm256_storeu_ps(&mut inp_grad_bt[i], inp_grad_i) };
 
+=======
+            unsafe { _mm256_store_ps(&mut out_bt[i], o) };
+>>>>>>> fc5594bd349c513bc5ac9937d425cc764867182c
             i += 8;
         }
 
         for j in c_simd..c {
+<<<<<<< HEAD
             inp_grad_bt[j] += factor * sum_inp_grad_scalar
                 + factor * (inp_bt[j] - mean_val)
                 + mean_grad;
         }
     }
+=======
+            out_bt[j] = (x[j] - mean_val) * rstd_val * weight.as_slice()[j] + bias.as_slice()[j];
+        }
+    }
+    println!("Completed layernorm_forward");
+>>>>>>> fc5594bd349c513bc5ac9937d425cc764867182c
 }
 
 #[inline]
 fn hsum_ps_avx(v: __m256) -> f32 {
     unsafe {
+<<<<<<< HEAD
         let mut sum: __m256 = _mm256_hadd_ps(v, v);
         sum = _mm256_hadd_ps(sum, sum);
+=======
+        let sum: __m256 = _mm256_hadd_ps(v, v);
+        let sum: __m256 = _mm256_hadd_ps(sum, sum);
+>>>>>>> fc5594bd349c513bc5ac9937d425cc764867182c
         _mm_cvtss_f32(_mm_add_ss(
             _mm256_castps256_ps128(sum),
             _mm256_extractf128_ps(sum, 1),
