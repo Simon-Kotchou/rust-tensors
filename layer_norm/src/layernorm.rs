@@ -1,3 +1,94 @@
+// #[cfg(target_arch = "x86_64")]
+// use std::arch::x86_64::*;
+
+// pub fn layernorm_forward(
+//     out: &mut [f32],
+//     mean: &mut [f32],
+//     rstd: &mut [f32],
+//     inp: &[f32],
+//     weight: &[f32],
+//     bias: &[f32],
+//     b: usize,
+//     t: usize,
+//     c: usize,
+// ) {
+//     let eps: f32 = 1e-5;
+//     let c_simd = c - (c % 16);
+
+//     for bt in 0..(b * t) {
+//         let offset: usize = bt * c;
+//         let x: &[f32] = &inp[offset..offset + c];
+//         let mut m: __m512 = unsafe { _mm512_setzero_ps() };
+
+//         let mut i = 0;
+//         while i < c_simd {
+//             let xi: __m512 = unsafe { _mm512_loadu_ps(&x[i]) };
+//             m = unsafe { _mm512_add_ps(m, xi) };
+//             i += 16;
+//         }
+
+//         let mut mean_val = hsum_ps_avx512(m);
+//         for j in c_simd..c {
+//             mean_val += x[j];
+//         }
+//         mean_val /= c as f32;
+//         mean[bt] = mean_val;
+
+//         let mean_val_simd = unsafe { _mm512_set1_ps(mean_val) };
+//         let mut v: __m512 = unsafe { _mm512_setzero_ps() };
+//         i = 0;
+//         while i < c_simd {
+//             let xi: __m512 = unsafe { _mm512_loadu_ps(&x[i]) };
+//             let xi_m: __m512 = unsafe { _mm512_sub_ps(xi, mean_val_simd) };
+//             v = unsafe { _mm512_fmadd_ps(xi_m, xi_m, v) };
+//             i += 16;
+//         }
+
+//         let mut var_val = hsum_ps_avx512(v);
+//         for j in c_simd..c {
+//             let xi_m = x[j] - mean_val;
+//             var_val += xi_m * xi_m;
+//         }
+//         var_val /= c as f32;
+
+//         let rstd_val = (var_val + eps).sqrt().recip();
+//         rstd[bt] = rstd_val;
+
+//         let s: __m512 = unsafe { _mm512_set1_ps(rstd_val) };
+//         let out_bt: &mut [f32] = &mut out[offset..offset + c];
+
+//         i = 0;
+//         while i < c_simd {
+//             let xi: __m512 = unsafe { _mm512_loadu_ps(&x[i]) };
+//             let wi: __m512 = unsafe { _mm512_loadu_ps(&weight[i]) };
+//             let bi: __m512 = unsafe { _mm512_loadu_ps(&bias[i]) };
+//             let o: __m512 = unsafe {
+//                 _mm512_fmadd_ps(
+//                     _mm512_mul_ps(s, _mm512_sub_ps(xi, mean_val_simd)),
+//                     wi,
+//                     bi,
+//                 )
+//             };
+//             unsafe { _mm512_storeu_ps(&mut out_bt[i], o) };
+//             i += 16;
+//         }
+
+//         for j in c_simd..c {
+//             out_bt[j] = (x[j] - mean_val) * rstd_val * weight[j] + bias[j];
+//         }
+//     }
+// }
+
+// #[inline]
+// fn hsum_ps_avx512(v: __m512) -> f32 {
+//     unsafe {
+//         let mut sum: __m512 = _mm512_add_ps(v, _mm512_shuffle_f32x4(v, v, 0b11_10_01_00));
+//         sum = _mm512_add_ps(sum, _mm512_shuffle_f32x4(sum, sum, 0b01_00_11_10));
+//         sum = _mm512_add_ps(sum, _mm512_permute_ps(sum, 0b01_00_11_10));
+//         _mm512_cvtss_f32(sum)
+//     }
+// }
+
 #[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::*;
 
