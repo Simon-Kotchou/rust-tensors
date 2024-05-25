@@ -40,6 +40,7 @@ pub fn multihead_attention_forward(
             linear_forward(k_h, k_bt, wk_h, &[0.0; 1024], 1, c, head_dim);
             linear_forward(v_h, v_bt, wv_h, &[0.0; 1024], 1, c, head_dim);
 
+            let mut attn_scores = &mut [0.0; 1024];
             let mut i = 0;
             while i < head_dim_simd {
                 let q_wide = unsafe { _mm256_loadu_ps(&q_h[i]) };
@@ -53,9 +54,7 @@ pub fn multihead_attention_forward(
                     sum = unsafe { _mm256_add_ps(sum, dot) };
                 }
 
-                let v_wide = unsafe { _mm256_loadu_ps(&v_h[i]) };
-                let out_wide = unsafe { _mm256_mul_ps(sum, v_wide) };
-                unsafe { _mm256_storeu_ps(&mut out_h[i], out_wide) };
+                unsafe { _mm256_storeu_ps(&mut attn_scores[i], sum) };
 
                 i += 8;
             }
@@ -65,7 +64,22 @@ pub fn multihead_attention_forward(
                 for k in 0..head_dim {
                     dot += q_h[k] * k_h[k];
                 }
-                out_h[j] = dot * v_h[j];
+                attn_scores[j] = dot;
+            }
+
+            // Softmax
+            let max_score = attn_scores.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+            let mut exp_scores = attn_scores.iter().map(|&s| (s - max_score).exp()).collect::<Vec<_>>();
+            let sum_exp_scores = exp_scores.iter().sum::<f32>();
+            exp_scores.iter_mut().for_each(|s| *s /= sum_exp_scores);
+
+            // Matrix multiplication
+            for i in 0..head_dim {
+                let mut sum = 0.0;
+                for j in 0..head_dim {
+                    sum += exp_scores[j] * v_h[j];
+                }
+                out_h[i] = sum;
             }
 
             linear_forward(
