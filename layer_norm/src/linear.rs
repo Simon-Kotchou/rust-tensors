@@ -47,3 +47,20 @@ pub fn linear_forward(
             }
         });
 }
+
+pub fn dropout(x: &mut [f32], prob: f32, train: bool) {
+    if !train {
+        return;
+    }
+
+    let scale = 1.0 / (1.0 - prob);
+    let mut rng = rand::thread_rng();
+
+    for i in 0..x.len() {
+        if rng.gen::<f32>() < prob {
+            x[i] = 0.0;
+        } else {
+            x[i] *= scale;
+        }
+    }
+}
