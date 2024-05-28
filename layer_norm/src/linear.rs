@@ -13,37 +13,39 @@ pub fn linear_forward(
 ) {
     let n_stride = 8;
     let n_simd = n - (n % n_stride);
-
     inp.chunks_exact(k)
         .zip(out.chunks_exact_mut(n))
         .for_each(|(inp_m, out_m)| {
             for j in (0..n_simd).step_by(n_stride) {
                 let mut sum = unsafe { _mm256_setzero_ps() };
+                for i in (0..k).step_by(4) {
+                    let inp_wide = unsafe { _mm256_set1_ps(inp_m[i]) };
+                    let weight_wide = unsafe { _mm256_loadu_ps(&weight[j + i * n]) };
+                    sum = unsafe { _mm256_fmadd_ps(inp_wide, weight_wide, sum) };
 
-                inp_m
-                    .iter()
-                    .zip(weight.chunks_exact(n).skip(j))
-                    .for_each(|(&inp_val, weight_k)| {
-                        let inp_wide = unsafe { _mm256_set1_ps(inp_val) };
-                        let weight_wide = unsafe { _mm256_loadu_ps(weight_k) };
-                        sum = unsafe { _mm256_fmadd_ps(inp_wide, weight_wide, sum) };
-                    });
+                    let inp_wide = unsafe { _mm256_set1_ps(inp_m[i + 1]) };
+                    let weight_wide = unsafe { _mm256_loadu_ps(&weight[j + (i + 1) * n]) };
+                    sum = unsafe { _mm256_fmadd_ps(inp_wide, weight_wide, sum) };
 
+                    let inp_wide = unsafe { _mm256_set1_ps(inp_m[i + 2]) };
+                    let weight_wide = unsafe { _mm256_loadu_ps(&weight[j + (i + 2) * n]) };
+                    sum = unsafe { _mm256_fmadd_ps(inp_wide, weight_wide, sum) };
+
+                    let inp_wide = unsafe { _mm256_set1_ps(inp_m[i + 3]) };
+                    let weight_wide = unsafe { _mm256_loadu_ps(&weight[j + (i + 3) * n]) };
+                    sum = unsafe { _mm256_fmadd_ps(inp_wide, weight_wide, sum) };
+                }
                 let bias_wide = unsafe { _mm256_loadu_ps(&bias[j]) };
                 let out_wide = unsafe { _mm256_add_ps(sum, bias_wide) };
                 unsafe {
                     _mm256_storeu_ps(&mut out_m[j], out_wide);
                 }
             }
-
             for j in n_simd..n {
                 let mut sum = 0.0;
-                inp_m
-                    .iter()
-                    .zip(weight.chunks_exact(n).skip(j))
-                    .for_each(|(&inp_val, weight_k)| {
-                        sum += inp_val * weight_k[0];
-                    });
+                for i in 0..k {
+                    sum += inp_m[i] * weight[i * n + j];
+                }
                 out_m[j] = sum + bias[j];
             }
         });
