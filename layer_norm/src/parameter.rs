@@ -45,3 +45,21 @@ impl Parameter {
             self.grad[j] += grad[j];
         }
     }
+
+    pub fn update(&mut self, lr: f32) {
+        let lr_wide = unsafe { _mm256_set1_ps(lr) };
+        let mut i = 0;
+        while i + 8 <= self.data.len() {
+            let data_wide = unsafe { _mm256_loadu_ps(self.data.as_ptr().add(i)) };
+            let grad_wide = unsafe { _mm256_loadu_ps(self.grad.as_ptr().add(i)) };
+            let result = unsafe { _mm256_sub_ps(data_wide, _mm256_mul_ps(lr_wide, grad_wide)) };
+            unsafe {
+                _mm256_storeu_ps(self.data.as_mut_ptr().add(i), result);
+            }
+            i += 8;
+        }
+        for j in i..self.data.len() {
+            self.data[j] -= lr * self.grad[j];
+        }
+    }
+}
