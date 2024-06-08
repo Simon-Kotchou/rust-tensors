@@ -1,6 +1,9 @@
-use rand::Rng;
+use ndarray::Array2;
+use ndarray_rand::RandomExt;
+use rand_distr::Normal;
 use std::arch::x86_64::*;
 
+#[derive(Clone)]
 struct ViTConfig {
     hidden_size: usize,
     intermediate_size: usize,
@@ -9,6 +12,42 @@ struct ViTConfig {
     hidden_act: &'static str,
     hidden_dropout_prob: f32,
     attention_probs_dropout_prob: f32,
+    image_size: usize,
+    patch_size: usize,
+}
+
+struct ViTEmbeddings {
+    patch_embeddings: Array2<f32>,
+    position_embeddings: Array2<f32>,
+    dropout: f32,
+}
+
+impl ViTEmbeddings {
+    fn new(config: &ViTConfig) -> Self {
+        let patch_size = config.patch_size;
+        let num_patches = (config.image_size / patch_size) * (config.image_size / patch_size);
+        let mut rng = rand::thread_rng();
+        let normal = Normal::new(0.0, config.hidden_size as f64 / num_patches as f64).unwrap();
+        let patch_embeddings = Array2::random((num_patches, config.hidden_size), normal);
+        let position_embeddings = Array2::random((1, num_patches + 1), normal);
+        ViTEmbeddings {
+            patch_embeddings,
+            position_embeddings,
+            dropout: config.hidden_dropout_prob,
+        }
+    }
+
+    fn forward(&self, pixel_values: &Array2<f32>) -> Array2<f32> {
+        let num_patches = self.patch_embeddings.shape()[0];
+        let mut embeddings = Array2::zeros((1, num_patches + 1, self.patch_embeddings.shape()[1]));
+        let patch_embeddings = self.patch_embeddings.clone();
+        let position_embeddings = self.position_embeddings.clone();
+        embeddings
+            .slice_mut(s![0, 1.., ..])
+            .assign(&(&patch_embeddings * pixel_values).sum_axis(Axis(1)));
+        embeddings += &position_embeddings;
+        embeddings.map(|v| if rand::random::<f32>() < self.dropout { 0.0 } else { *v })
+    }
 }
 
 struct ViTAttention {
