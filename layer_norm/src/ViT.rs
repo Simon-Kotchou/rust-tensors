@@ -184,53 +184,42 @@ impl ViTLayer {
 }
 
 struct ViTEncoder {
-    layer: Vec<ViTLayer>,
+    layers: Vec<ViTLayer>,
 }
 
 impl ViTEncoder {
     fn new(config: &ViTConfig) -> Self {
-        let mut layer = Vec::new();
-        for _ in 0..config.num_hidden_layers {
-            layer.push(ViTLayer::new(config));
+        ViTEncoder {
+            layers: (0..config.num_hidden_layers).map(|_| ViTLayer::new(config)).collect(),
         }
-        ViTEncoder { layer }
     }
 
     fn forward(
         &self,
-        hidden_states: &[f32],
+        hidden_states: &Array2<f32>,
         output_attentions: bool,
         output_hidden_states: bool,
-    ) -> (Vec<f32>, Option<Vec<Vec<f32>>>, Option<Vec<Vec<f32>>>) {
-        let mut all_hidden_states = if output_hidden_states {
-            Some(vec![hidden_states.to_vec()])
-        } else {
-            None
-        };
+    ) -> (Array2<f32>, Option<Vec<Array2<f32>>>, Option<Vec<Array2<f32>>>) {
+        let mut all_hidden_states = if output_hidden_states { Some(vec![hidden_states.clone()]) } else { None };
+        let mut all_attentions = if output_attentions { Some(Vec::new()) } else { None };
 
-        let mut all_attentions = if output_attentions {
-            Some(Vec::new())
-        } else {
-            None
-        };
-
-        let mut hidden_states = hidden_states.to_vec();
-        for layer_module in &self.layer {
-            if let Some(hidden_states_vec) = all_hidden_states.as_mut() {
+        let mut hidden_states = hidden_states.clone();
+        for layer in &self.layers {
+            if let Some(hidden_states_vec) = &mut all_hidden_states {
                 hidden_states_vec.push(hidden_states.clone());
             }
 
-            let (layer_output, attn_weights) = layer_module.forward(&hidden_states, output_attentions);
+            let (layer_output, attn_weights) = layer.forward(&hidden_states, output_attentions);
             hidden_states = layer_output;
 
-            if let Some(attentions_vec) = all_attentions.as_mut() {
+            if let Some(attentions_vec) = &mut all_attentions {
                 if let Some(attn_weights) = attn_weights {
                     attentions_vec.push(attn_weights);
                 }
             }
         }
 
-        if let Some(hidden_states_vec) = all_hidden_states.as_mut() {
+        if let Some(hidden_states_vec) = &mut all_hidden_states {
             hidden_states_vec.push(hidden_states.clone());
         }
 
