@@ -54,9 +54,9 @@ struct ViTAttention {
     num_attention_heads: usize,
     attention_head_size: usize,
     all_head_size: usize,
-    query: Vec<f32>,
-    key: Vec<f32>,
-    value: Vec<f32>,
+    query: Array2<f32>,
+    key: Array2<f32>,
+    value: Array2<f32>,
     dropout: f32,
 }
 
@@ -64,145 +64,97 @@ impl ViTAttention {
     fn new(config: &ViTConfig) -> Self {
         let attention_head_size = config.hidden_size / config.num_attention_heads;
         let all_head_size = config.num_attention_heads * attention_head_size;
+        let mut rng = rand::thread_rng();
+        let normal = Normal::new(0.0, config.hidden_size as f64 / all_head_size as f64).unwrap();
         ViTAttention {
             num_attention_heads: config.num_attention_heads,
             attention_head_size,
             all_head_size,
-            query: vec![0.0; config.hidden_size * all_head_size],
-            key: vec![0.0; config.hidden_size * all_head_size],
-            value: vec![0.0; config.hidden_size * all_head_size],
+            query: Array2::random((config.hidden_size, all_head_size), normal),
+            key: Array2::random((config.hidden_size, all_head_size), normal),
+            value: Array2::random((config.hidden_size, all_head_size), normal),
             dropout: config.attention_probs_dropout_prob,
         }
     }
 
-    fn forward(&self, hidden_states: &[f32], output_attentions: bool) -> (Vec<f32>, Option<Vec<f32>>) {
-        let bs = hidden_states.len() / self.all_head_size;
-        let mut q = vec![0.0; bs * self.all_head_size];
-        let mut k = vec![0.0; bs * self.all_head_size];
-        let mut v = vec![0.0; bs * self.all_head_size];
+    fn forward(&self, hidden_states: &Array2<f32>, output_attentions: bool) -> (Array2<f32>, Option<Array2<f32>>) {
+        let bs = hidden_states.shape()[0];
+        let mut q = hidden_states.dot(&self.query).into_shape((bs, -1, self.num_attention_heads, self.attention_head_size)).unwrap();
+        let mut k = hidden_states.dot(&self.key).into_shape((bs, -1, self.num_attention_heads, self.attention_head_size)).unwrap();
+        let mut v = hidden_states.dot(&self.value).into_shape((bs, -1, self.num_attention_heads, self.attention_head_size)).unwrap();
 
-        linear_forward(
-            &mut q,
-            hidden_states,
-            &self.query,
-            &[0.0; 1024],
-            bs,
-            self.all_head_size,
-            self.all_head_size,
-        );
-        linear_forward(
-            &mut k,
-            hidden_states,
-            &self.key,
-            &[0.0; 1024],
-            bs,
-            self.all_head_size,
-            self.all_head_size,
-        );
-        linear_forward(
-            &mut v,
-            hidden_states,
-            &self.value,
-            &[0.0; 1024],
-            bs,
-            self.all_head_size,
-            self.all_head_size,
-        );
+        q.swap_axes(1, 2);
+        k.swap_axes(1, 2);
+        v.swap_axes(1, 2);
 
-        let mut attn_output = vec![0.0; bs * self.all_head_size];
-        let mut attn_probs = None;
-        if output_attentions {
-            attn_probs = Some(vec![0.0; bs * self.num_attention_heads * (hidden_states.len() / self.all_head_size)]);
-        }
+        let mut attn_scores = q.dot(&k.t()) / (self.attention_head_size as f32).sqrt();
+        let attn_probs = attn_scores.map(|v| v.exp()) / attn_scores.map(|v| v.exp()).sum_axis(Axis(2));
+        let attn_probs = attn_probs.map(|v| if rand::random::<f32>() < self.dropout { 0.0 } else { *v });
 
-        multihead_attention_forward(
-            &mut attn_output,
-            &q,
-            &k,
-            &v,
-            &self.query,
-            &self.key,
-            &self.value,
-            &[0.0; 1024],
-            bs,
-            hidden_states.len() / self.all_head_size,
-            self.all_head_size,
-            self.num_attention_heads,
-        );
+        let mut attn_output = attn_probs.dot(&v);
+        attn_output.swap_axes(1, 2);
+        attn_output.into_shape((bs, -1, self.all_head_size));
 
-        dropout(&mut attn_output, self.dropout, true);
+        let attn_weights = if output_attentions { Some(attn_probs) } else { None };
 
-        (attn_output, attn_probs)
+        (attn_output, attn_weights)
     }
 }
 
-
 struct ViTIntermediate {
-    dense: Vec<f32>,
-    intermediate_act_fn: fn(&mut [f32]),
+    dense: Array2<f32>,
+    intermediate_act_fn: fn(&mut Array2<f32>),
 }
 
 impl ViTIntermediate {
     fn new(config: &ViTConfig) -> Self {
+        let mut rng = rand::thread_rng();
+        let normal = Normal::new(0.0, config.hidden_size as f64 / config.intermediate_size as f64).unwrap();
         ViTIntermediate {
-            dense: vec![0.0; config.hidden_size * config.intermediate_size],
+            dense: Array2::random((config.hidden_size, config.intermediate_size), normal),
             intermediate_act_fn: match config.hidden_act {
-                "gelu" => gelu,
-                "relu" => relu,
+                "gelu" => Self::gelu,
+                "relu" => Self::relu,
                 _ => panic!("Unsupported activation function"),
             },
         }
     }
 
-    fn forward(&self, hidden_states: &[f32]) -> Vec<f32> {
-        let bs = hidden_states.len() / self.dense.len();
-        let mut intermediate_output = vec![0.0; bs * self.dense.len()];
-        linear_forward(
-            &mut intermediate_output,
-            hidden_states,
-            &self.dense,
-            &[0.0; 1024],
-            bs,
-            hidden_states.len(),
-            self.dense.len(),
-        );
+    fn forward(&self, hidden_states: &Array2<f32>) -> Array2<f32> {
+        let mut intermediate_output = hidden_states.dot(&self.dense);
         (self.intermediate_act_fn)(&mut intermediate_output);
         intermediate_output
     }
+
+    fn gelu(x: &mut Array2<f32>) {
+        x.mapv_inplace(|v| {
+            let cdf = 0.5 * (1.0 + ((v / (2.0 as f32).sqrt()) * (1.0 + 0.044715 * v * v)).tanh());
+            v * cdf
+        });
+    }
+
+    fn relu(x: &mut Array2<f32>) {
+        x.mapv_inplace(|v| v    }
 }
 
 struct ViTOutput {
-    dense: Vec<f32>,
-    dropout: f32,
+    dense:    dropout: f32,
 }
 
 impl ViTOutput {
     fn new(config: &ViTConfig) -> Self {
+        let mut rng = rand::thread_rng();
+        let normal = Normal::new(0.0, config.intermediate_size as f64 / config.hidden_size as f64).unwrap();
         ViTOutput {
-            dense: vec![0.0; config.intermediate_size * config.hidden_size],
+            dense: Array2::random((config.intermediate_size, config.hidden_size), normal),
             dropout: config.hidden_dropout_prob,
         }
     }
 
-    fn forward(&self, hidden_states: &[f32], input_tensor: &[f32]) -> Vec<f32> {
-        let bs = hidden_states.len() / self.dense.len();
-        let mut output = vec![0.0; bs * self.dense.len()];
-        linear_forward(
-            &mut output,
-            hidden_states,
-            &self.dense,
-            &[0.0; 1024],
-            bs,
-            hidden_states.len(),
-            self.dense.len(),
-        );
-        dropout(&mut output, self.dropout, true);
-
-        output
-            .iter()
-            .zip(input_tensor.iter())
-            .map(|(&x, &y)| x + y)
-            .collect()
+    fn forward(&self, hidden_states: &Array2<f32>, input_tensor: &Array2<f32>) -> Array2<f32> {
+        let mut output = hidden_states.dot(&self.dense);
+        output.map(|v| if rand::random::<f32>() < self.dropout { 0.0 } else { *v });
+        output + input_tensor
     }
 }
 
@@ -223,11 +175,7 @@ impl ViTLayer {
         }
     }
 
-    fn forward(
-        &self,
-        hidden_states: &[f32],
-        output_attentions: bool,
-    ) -> (Vec<f32>, Option<Vec<f32>>) {
+    fn forward(&self, hidden_states: &Array2<f32>, output_attentions: bool) -> (Array2<f32>, Option<Array2<f32>>) {
         let (attn_output, attn_weights) = self.attention.forward(hidden_states, output_attentions);
         let intermediate_output = self.intermediate.forward(&attn_output);
         let layer_output = self.output.forward(&intermediate_output, hidden_states);
