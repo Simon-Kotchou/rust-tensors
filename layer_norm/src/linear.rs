@@ -1,6 +1,7 @@
-#[cfg(target_arch = "x86_64")]
+#![feature(stdsimd)]
 use std::arch::x86_64::*;
-use rand::Rng;
+use rand::prelude::*;
+use rayon::prelude::*;
 
 pub fn linear_forward(
     out: &mut [f32],
@@ -11,42 +12,51 @@ pub fn linear_forward(
     k: usize,
     n: usize,
 ) {
-    let n_stride = 8;
-    let n_simd = n - (n % n_stride);
-    inp.chunks_exact(k)
-        .zip(out.chunks_exact_mut(n))
-        .for_each(|(inp_m, out_m)| {
-            for j in (0..n_simd).step_by(n_stride) {
+    assert_eq!(inp.len(), m * k);
+    assert_eq!(weight.len(), k * n);
+    assert_eq!(bias.len(), n);
+    assert_eq!(out.len(), m * n);
+
+    const SIMD_WIDTH: usize = 8;
+    let n_simd = n - (n % SIMD_WIDTH);
+
+    out.par_chunks_exact_mut(n)
+        .zip(inp.par_chunks_exact(k))
+        .for_each(|(out_m, inp_m)| {
+            for j in (0..n_simd).step_by(SIMD_WIDTH) {
                 let mut sum = unsafe { _mm256_setzero_ps() };
                 for i in (0..k).step_by(4) {
-                    let inp_wide = unsafe { _mm256_set1_ps(inp_m[i]) };
-                    let weight_wide = unsafe { _mm256_loadu_ps(&weight[j + i * n]) };
-                    sum = unsafe { _mm256_fmadd_ps(inp_wide, weight_wide, sum) };
+                    unsafe {
+                        let inp_wide = _mm256_set1_ps(inp_m[i]);
+                        let weight_wide = _mm256_loadu_ps(weight.as_ptr().add(j + i * n));
+                        sum = _mm256_fmadd_ps(inp_wide, weight_wide, sum);
 
-                    let inp_wide = unsafe { _mm256_set1_ps(inp_m[i + 1]) };
-                    let weight_wide = unsafe { _mm256_loadu_ps(&weight[j + (i + 1) * n]) };
-                    sum = unsafe { _mm256_fmadd_ps(inp_wide, weight_wide, sum) };
+                        let inp_wide = _mm256_set1_ps(inp_m[i + 1]);
+                        let weight_wide = _mm256_loadu_ps(weight.as_ptr().add(j + (i + 1) * n));
+                        sum = _mm256_fmadd_ps(inp_wide, weight_wide, sum);
 
-                    let inp_wide = unsafe { _mm256_set1_ps(inp_m[i + 2]) };
-                    let weight_wide = unsafe { _mm256_loadu_ps(&weight[j + (i + 2) * n]) };
-                    sum = unsafe { _mm256_fmadd_ps(inp_wide, weight_wide, sum) };
+                        let inp_wide = _mm256_set1_ps(inp_m[i + 2]);
+                        let weight_wide = _mm256_loadu_ps(weight.as_ptr().add(j + (i + 2) * n));
+                        sum = _mm256_fmadd_ps(inp_wide, weight_wide, sum);
 
-                    let inp_wide = unsafe { _mm256_set1_ps(inp_m[i + 3]) };
-                    let weight_wide = unsafe { _mm256_loadu_ps(&weight[j + (i + 3) * n]) };
-                    sum = unsafe { _mm256_fmadd_ps(inp_wide, weight_wide, sum) };
+                        let inp_wide = _mm256_set1_ps(inp_m[i + 3]);
+                        let weight_wide = _mm256_loadu_ps(weight.as_ptr().add(j + (i + 3) * n));
+                        sum = _mm256_fmadd_ps(inp_wide, weight_wide, sum);
+                    }
                 }
-                let bias_wide = unsafe { _mm256_loadu_ps(&bias[j]) };
-                let out_wide = unsafe { _mm256_add_ps(sum, bias_wide) };
                 unsafe {
-                    _mm256_storeu_ps(&mut out_m[j], out_wide);
+                    let bias_wide = _mm256_loadu_ps(bias.as_ptr().add(j));
+                    let out_wide = _mm256_add_ps(sum, bias_wide);
+                    _mm256_storeu_ps(out_m.as_mut_ptr().add(j), out_wide);
                 }
             }
+
+            // Handle remaining elements
             for j in n_simd..n {
-                let mut sum = 0.0;
-                for i in 0..k {
-                    sum += inp_m[i] * weight[i * n + j];
-                }
-                out_m[j] = sum + bias[j];
+                out_m[j] = inp_m.iter()
+                    .zip(weight[j..].iter().step_by(n))
+                    .map(|(&a, &b)| a * b)
+                    .sum::<f32>() + bias[j];
             }
         });
 }
@@ -57,13 +67,13 @@ pub fn dropout(x: &mut [f32], prob: f32, train: bool) {
     }
 
     let scale = 1.0 / (1.0 - prob);
-    let mut rng = rand::thread_rng();
+    let mut rng = thread_rng();
 
-    for i in 0..x.len() {
-        if rng.gen::<f32>() < prob {
-            x[i] = 0.0;
+    x.par_iter_mut().for_each(|val| {
+        if rng.gen::<f32>() >= prob {
+            *val *= scale;
         } else {
-            x[i] *= scale;
+            *val = 0.0;
         }
-    }
+    });
 }
